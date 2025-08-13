@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CSV 퀴즈 + 랭킹 + 처음으로 돌아가기</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 700px; margin: 30px auto; padding: 0 20px; }
+  .hidden { display: none; }
+  .question { font-weight: bold; margin-bottom: 10px; }
+  .choices button {
+    display: block;
+    width: 100%;
+    margin: 6px 0;
+    padding: 10px;
+    font-size: 16px;
+    cursor: pointer;
+    border-radius: 6px;
+    border: 1px solid #888;
+    background-color: #f0f0f0;
+    transition: background-color 0.3s;
+  }
+  .choices button:hover { background-color: #ddd; }
+  .correct { background-color: #a0e6a0 !important; border-color: #3c763d; }
+  .wrong { background-color: #e6a0a0 !important; border-color: #a94442; }
+  button.next-btn, button.restart-btn, button.save-score-btn {
+    margin-top: 20px;
+    padding: 10px 20px;
+    font-size: 16px;
+    cursor: pointer;
+    border-radius: 6px;
+    border: none;
+    background-color: #4caf50;
+    color: white;
+  }
+  #result, #ranking {
+    margin-top: 20px;
+    font-size: 18px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+  }
+  th, td {
+    border: 1px solid #ccc;
+    padding: 6px 10px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<h1>CSV 퀴즈 + 랭킹</h1>
+
+<div id="upload-section">
+  <p>CSV 파일 형식: <code>문제,보기1|보기2|보기3|보기4,정답인덱스(0부터),해설</code></p>
+  <input type="file" id="csvfile" accept=".csv" />
+  <button id="load-btn">파일 읽기</button>
+</div>
+
+<div id="quiz-section" class="hidden">
+  <div id="question" class="question"></div>
+  <div id="choices" class="choices"></div>
+  <div id="explanation" style="margin-top:10px; font-style:italic; color:#555;"></div>
+  <button id="next-btn" class="next-btn" style="display:none;">다음 문제</button>
+</div>
+
+<div id="result" class="hidden"></div>
+
+<div id="save-score-section" class="hidden">
+  <label>이름: <input type="text" id="username" /></label>
+  <button id="save-score-btn" class="save-score-btn">점수 저장</button>
+</div>
+
+<div id="ranking" class="hidden">
+  <h2>랭킹</h2>
+  <table>
+    <thead><tr><th>순위</th><th>이름</th><th>점수</th><th>시간(초)</th></tr></thead>
+    <tbody id="ranking-body"></tbody>
+  </table>
+</div>
+
+<button id="restart-btn" class="restart-btn hidden">처음으로 돌아가기</button>
+
+<script>
+  let quizData = [];
+  let currentIndex = 0;
+  let score = 0;
+  let startTime = 0;
+
+  const uploadSection = document.getElementById('upload-section');
+  const quizSection = document.getElementById('quiz-section');
+  const questionEl = document.getElementById('question');
+  const choicesEl = document.getElementById('choices');
+  const explanationEl = document.getElementById('explanation');
+  const nextBtn = document.getElementById('next-btn');
+  const resultEl = document.getElementById('result');
+  const saveScoreSection = document.getElementById('save-score-section');
+  const usernameInput = document.getElementById('username');
+  const saveScoreBtn = document.getElementById('save-score-btn');
+  const rankingEl = document.getElementById('ranking');
+  const rankingBody = document.getElementById('ranking-body');
+  const csvFileInput = document.getElementById('csvfile');
+  const loadBtn = document.getElementById('load-btn');
+  const restartBtn = document.getElementById('restart-btn');
+
+  function parseCSV(text) {
+    const lines = text.trim().split('\n');
+    const data = [];
+    for (let line of lines) {
+      const parts = line.split(',');
+      if(parts.length < 4) continue;
+      const question = parts[0].trim();
+      const choices = parts[1].split('|').map(s => s.trim());
+      const answer = Number(parts[2]);
+      const explanation = parts.slice(3).join(',').trim();
+      if(question && choices.length >= 2 && !isNaN(answer)) {
+        data.push({question, choices, answer, explanation});
+      }
+    }
+    return data;
+  }
+
+  loadBtn.onclick = () => {
+    const file = csvFileInput.files[0];
+    if(!file) {
+      alert('CSV 파일을 선택해주세요.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = e => {
+      quizData = parseCSV(e.target.result);
+      if(quizData.length === 0) {
+        alert('유효한 문제를 찾을 수 없습니다.');
+        return;
+      }
+      uploadSection.classList.add('hidden');
+      quizSection.classList.remove('hidden');
+      currentIndex = 0;
+      score = 0;
+      startTime = Date.now();
+      loadQuestion();
+    };
+    reader.readAsText(file);
+  };
+
+  function loadQuestion() {
+    explanationEl.textContent = '';
+    nextBtn.style.display = 'none';
+    const q = quizData[currentIndex];
+    questionEl.textContent = `${currentIndex + 1}. ${q.question}`;
+    choicesEl.innerHTML = '';
+    q.choices.forEach((choice, idx) => {
+      const btn = document.createElement('button');
+      btn.textContent = choice;
+      btn.onclick = () => selectAnswer(idx);
+      choicesEl.appendChild(btn);
+    });
+  }
+
+  function selectAnswer(selectedIdx) {
+    const q = quizData[currentIndex];
+    const buttons = choicesEl.querySelectorAll('button');
+    buttons.forEach((btn, idx) => {
+      btn.disabled = true;
+      if(idx === q.answer) btn.classList.add('correct');
+      if(idx === selectedIdx && idx !== q.answer) btn.classList.add('wrong');
+    });
+    if(selectedIdx === q.answer) {
+      score++;
+    }
+    explanationEl.textContent = `해설: ${q.explanation}`;
+    nextBtn.style.display = 'inline-block';
+  }
+
+  nextBtn.onclick = () => {
+    currentIndex++;
+    if(currentIndex < quizData.length) {
+      loadQuestion();
+    } else {
+      showResult();
+    }
+  };
+
+  function showResult() {
+    quizSection.classList.add('hidden');
+    resultEl.classList.remove('hidden');
+    saveScoreSection.classList.remove('hidden');
+    rankingEl.classList.remove('hidden');
+    restartBtn.classList.remove('hidden');
+
+    const timeTaken = Math.floor((Date.now() - startTime) / 1000);
+    resultEl.textContent = `퀴즈 완료! 점수: ${score} / ${quizData.length}, 소요 시간: ${timeTaken}초`;
+  }
+
+  saveScoreBtn.onclick = () => {
+    const name = usernameInput.value.trim();
+    if(!name) {
+      alert('이름을 입력하세요.');
+      return;
+    }
+    const timeTaken = Math.floor((Date.now() - startTime) / 1000);
+    const rankings = JSON.parse(localStorage.getItem('quizRankings') || '[]');
+    rankings.push({name, score, time: timeTaken});
+    rankings.sort((a,b) => b.score - a.score || a.time - b.time);
+    localStorage.setItem('quizRankings', JSON.stringify(rankings));
+    showRanking(rankings);
+    saveScoreSection.classList.add('hidden');
+    usernameInput.value = '';
+  };
+
+  function showRanking(rankings) {
+    rankingBody.innerHTML = '';
+    rankings.forEach((r, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${i+1}</td><td>${r.name}</td><td>${r.score}</td><td>${r.time}</td>`;
+      rankingBody.appendChild(tr);
+    });
+  }
+
+  restartBtn.onclick = () => {
+    // 초기 화면 보이기
+    uploadSection.classList.remove('hidden');
+    quizSection.classList.add('hidden');
+    resultEl.classList.add('hidden');
+    saveScoreSection.classList.add('hidden');
+    restartBtn.classList.add('hidden');
+    // 문제 데이터, 상태 초기화
+    quizData = [];
+    currentIndex = 0;
+    score = 0;
+    startTime = 0;
+    usernameInput.value = '';
+    // 랭킹은 유지됨 (localStorage에 저장되어있음)
+  };
+
+  window.onload = () => {
+    const rankings = JSON.parse(localStorage.getItem('quizRankings') || '[]');
+    if(rankings.length) {
+      rankingEl.classList.remove('hidden');
+      showRanking(rankings);
+    }
+  };
+</script>
+
+</body>
+</html>
